@@ -2,27 +2,31 @@ name: AI Stock Alert
 
 on:
   schedule:
-    # 北京时间周一至周五 15:30 (UTC 7:30)
+    # 每个工作日的北京时间 15:30（UTC 07:30）
     - cron: '30 7 * * 1-5'
-  workflow_dispatch:   # 允许手动运行
+  workflow_dispatch:   # 允许手动触发运行
+
+# 消除 Node.js 20 弃用警告
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   run-alert:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: 设置 Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: 安装依赖
         run: |
           pip install pandas numpy scikit-learn joblib baostock schedule requests
 
-      - name: Prepare config from secrets
+      - name: 从 Secrets 生成配置文件
         run: |
           echo "STOCK_LIST = '${{ secrets.STOCK_LIST }}'.split(',')" > config_temp.py
           echo "PUSHPLUS_TOKEN = '${{ secrets.PUSHPLUS_TOKEN }}'" >> config_temp.py
@@ -37,13 +41,13 @@ jobs:
           echo "STATUS_DIR = 'status'" >> config_temp.py
           mv config_temp.py config.py
 
-      - name: Train models
+      - name: 训练模型
         run: python train_all.py
 
-      - name: Run daily alert
+      - name: 运行每日提醒
         run: python daily_alert.py
 
-      - name: Upload log (optional)
+      - name: 上传运行日志（可选）
         if: always()
         uses: actions/upload-artifact@v4
         with:
