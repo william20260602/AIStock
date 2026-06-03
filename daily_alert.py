@@ -1,99 +1,65 @@
-# daily_alert.py
-import os
-import json
-import numpy as np
-import pandas as pd
-import joblib
-import config
-from data_fetcher import fetch_stock_data
-from features import add_features, FEATURE_COLS
-from utils_push import send_alert
+name: AI Stock Alert
 
-def load_status(symbol):
-    os.makedirs(config.STATUS_DIR, exist_ok=True)
-    status_file = os.path.join(config.STATUS_DIR, f"{symbol}.json")
-    try:
-        with open(status_file, 'r') as f:
-            return json.load(f)['holding']
-    except:
-        return False
+on:
+  schedule:
+    # 北京时间周一至周五 15:30 (UTC 7:30)
+    - cron: '30 7 * * 1-5'
+  workflow_dispatch:   # 允许手动运行
 
-def save_status(symbol, holding):
-    status_file = os.path.join(config.STATUS_DIR, f"{symbol}.json")
-    with open(status_file, 'w') as f:
-        json.dump({'holding': holding}, f)
+permissions:
+  contents: write
 
-def daily_check():
-    for symbol in config.STOCK_LIST:
-        try:
-            print(f"\n--- 处理股票: {symbol} ---")
-            df = fetch_stock_data(symbol)
-            if len(df) < config.TIME_STEPS + 5:
-                print(f"   [!] 数据不足，跳过")
-                continue
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-            df_feat = add_features(df, predict_days=config.PREDICT_DAYS)
-            if len(df_feat) < 1:
-                print(f"   [!] 特征处理后无数据，跳过")
-                continue
+jobs:
+  run-alert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
 
-            # 取最新一天的特征（不再需要时间序列窗口）
-            recent = df_feat[FEATURE_COLS].iloc[-1:].values.reshape(1, -1)
-            current_price = df_feat['close'].iloc[-1]
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-            model_path = os.path.join(config.MODEL_DIR, symbol, "lgb_model.pkl")
-            scaler_X_path = os.path.join(config.MODEL_DIR, symbol, "scaler_X.pkl")
-            scaler_y_path = os.path.join(config.MODEL_DIR, symbol, "scaler_y.pkl")
+      - name: 安装依赖
+        run: |
+          pip install pandas numpy scikit-learn joblib baostock schedule requests lightgbm
 
-            if not os.path.exists(model_path):
-                print(f"   [!] {symbol} 未找到模型，请先训练")
-                continue
+      - name: 从 Secrets 生成配置文件
+        run: |
+          echo "STOCK_LIST = '${{ secrets.STOCK_LIST }}'.split(',')" > config_temp.py
+          echo "PUSHPLUS_TOKEN = '${{ secrets.PUSHPLUS_TOKEN }}'" >> config_temp.py
+          echo "DINGTALK_WEBHOOK = ''" >> config_temp.py
+          echo "TELEGRAM_BOT_TOKEN = ''" >> config_temp.py
+          echo "TELEGRAM_CHAT_ID = ''" >> config_temp.py
+          echo "TIME_STEPS = 20" >> config_temp.py
+          echo "PREDICT_DAYS = 5" >> config_temp.py
+          echo "BUY_THRESHOLD = 0.02" >> config_temp.py
+          echo "SELL_THRESHOLD = -0.02" >> config_temp.py
+          echo "MODEL_DIR = 'models'" >> config_temp.py
+          echo "STATUS_DIR = 'status'" >> config_temp.py
+          mv config_temp.py config.py
 
-            model = joblib.load(model_path)
-            scaler_X = joblib.load(scaler_X_path)
-            scaler_y = joblib.load(scaler_y_path)
+      - name: 训练模型
+        run: python train_all.py
 
-            # 预测未来收益率
-            recent_scaled = scaler_X.transform(recent)
-            pred_scaled = model.predict(recent_scaled)
-            pred_return = scaler_y.inverse_transform(pred_scaled.reshape(-1, 1))[0][0]
+      - name: 运行每日提醒
+        run: python daily_alert.py
 
-            # 判断买卖信号
-            if pred_return > config.BUY_THRESHOLD:
-                signal = "买入"
-            elif pred_return < config.SELL_THRESHOLD:
-                signal = "卖出"
-            else:
-                signal = "持有"
+      - name: 提交并推送持仓状态文件
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add status/
+          git diff --quiet && git diff --staged --quiet || (git commit -m "更新持仓状态" && git push)
 
-            print(f"   预测收益率: {pred_return:.4f} | 信号: {signal} | 当前价: {current_price:.2f}")
-
-            # 状态机推送
-            is_holding = load_status(symbol)
-            if signal == "买入" and not is_holding:
-                send_alert(symbol, "买入", pred_return, current_price)
-                save_status(symbol, True)
-                print(f"   [+] 买入提醒已发送")
-            elif signal == "卖出" and is_holding:
-                send_alert(symbol, "卖出", pred_return, current_price)
-                save_status(symbol, False)
-                print(f"   [+] 卖出提醒已发送")
-            else:
-                print(f"   [-] 不推送 (持有={is_holding}, 信号={signal})")
-
-        except Exception as e:
-            print(f"   [!] {symbol} 处理出错: {e}")
-            # 可选：写入日志
-            with open("run_log.txt", "a", encoding="utf-8") as log:
-                log.write(f"{pd.Timestamp.now()} - {symbol} 出错: {e}\n")
-
-if __name__ == "__main__":
-    import datetime
-    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_log.txt")
-    try:
-        daily_check()
-        with open(log_file, "a", encoding="utf-8") as log:
-            log.write(f"{datetime.datetime.now()} - 执行成功\n")
-    except Exception as e:
-        with open(log_file, "a", encoding="utf-8") as log:
-            log.write(f"{datetime.datetime.now()} - 全局出错: {e}\n")
+      - name: 上传运行日志（可选）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-log
+          path: run_log.txt
