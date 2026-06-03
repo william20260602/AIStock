@@ -36,8 +36,8 @@ jobs:
           echo "TELEGRAM_CHAT_ID = ''" >> config_temp.py
           echo "TIME_STEPS = 20" >> config_temp.py
           echo "PREDICT_DAYS = 5" >> config_temp.py
-          echo "BUY_THRESHOLD = 0.02" >> config_temp.py
-          echo "SELL_THRESHOLD = -0.02" >> config_temp.py
+          echo "BUY_THRESHOLD = -0.10" >> config_temp.py
+          echo "SELL_THRESHOLD = 0.10" >> config_temp.py
           echo "MODEL_DIR = 'models'" >> config_temp.py
           echo "STATUS_DIR = 'status'" >> config_temp.py
           mv config_temp.py config.py
