@@ -24,7 +24,7 @@ jobs:
 
             - name: 安装依赖
         run: |
-          pip install pandas numpy scikit-learn joblib baostock schedule requests lightgbm
+          pip install pandas numpy scikit-learn joblib baostock schedule requests lightgbm xgboost
 
       - name: 从 Secrets 生成配置文件
         run: |
