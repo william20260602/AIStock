@@ -2,11 +2,12 @@ name: AI Stock Alert
 
 on:
   schedule:
-    # 每个工作日的北京时间 15:30（UTC 07:30）
     - cron: '30 7 * * 1-5'
-  workflow_dispatch:   # 允许手动触发运行
+  workflow_dispatch:
 
-# 消除 Node.js 20 弃用警告
+permissions:
+  contents: write
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -14,19 +15,19 @@ jobs:
   run-alert:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 设置 Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-            - name: 安装依赖
+      - name: Install dependencies
         run: |
           pip install pandas numpy scikit-learn joblib baostock schedule requests lightgbm xgboost
 
-      - name: 从 Secrets 生成配置文件
+      - name: Generate config from secrets
         run: |
           echo "STOCK_LIST = '${{ secrets.STOCK_LIST }}'.split(',')" > config_temp.py
           echo "PUSHPLUS_TOKEN = '${{ secrets.PUSHPLUS_TOKEN }}'" >> config_temp.py
@@ -41,13 +42,21 @@ jobs:
           echo "STATUS_DIR = 'status'" >> config_temp.py
           mv config_temp.py config.py
 
-      - name: 训练模型
+      - name: Train models
         run: python train_all.py
 
-      - name: 运行每日提醒
+      - name: Run daily alert
         run: python daily_alert.py
 
-      - name: 上传运行日志（可选）
+      - name: Commit and push status
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add status/
+          git diff --quiet && git diff --staged --quiet || (git commit -m "update status" && git push)
+
+      - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
         with:
