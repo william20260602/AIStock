@@ -4,13 +4,11 @@ import pandas as pd
 import datetime
 
 def fetch_stock_data(symbol, start_date="2015-01-01", end_date="2030-12-31"):
-    # 自动转换代码格式
     if symbol.startswith('6'):
         bs_symbol = f"sh.{symbol}"
     else:
         bs_symbol = f"sz.{symbol}"
 
-    # 如果 end_date 在今天之后，则自动使用今天日期
     today_str = datetime.date.today().strftime('%Y-%m-%d')
     if end_date > today_str:
         end_date = today_str
@@ -19,6 +17,7 @@ def fetch_stock_data(symbol, start_date="2015-01-01", end_date="2030-12-31"):
     if lg.error_code != '0':
         raise Exception(f"baostock 登录失败: {lg.error_msg}")
 
+    print(f"   查询 {bs_symbol} 从 {start_date} 到 {end_date}")
     rs = bs.query_history_k_data_plus(
         bs_symbol,
         "date,open,high,low,close,volume,amount,turn",
@@ -37,6 +36,10 @@ def fetch_stock_data(symbol, start_date="2015-01-01", end_date="2030-12-31"):
         data_list.append(rs.get_row_data())
 
     bs.logout()
+
+    if len(data_list) == 0:
+        raise Exception(f"未获取到任何数据，请检查股票代码 {symbol} 是否正确")
+
     df = pd.DataFrame(data_list, columns=rs.fields)
     df['date'] = pd.to_datetime(df['date'])
     for col in ['open', 'high', 'low', 'close', 'volume', 'amount', 'turn']:
@@ -45,4 +48,5 @@ def fetch_stock_data(symbol, start_date="2015-01-01", end_date="2030-12-31"):
     df.set_index('date', inplace=True)
     df.sort_index(inplace=True)
     df.dropna(inplace=True)
+    print(f"   获取到 {len(df)} 行数据")
     return df
